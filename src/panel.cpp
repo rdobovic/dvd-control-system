@@ -1,11 +1,12 @@
+// Include global header files
 #include <Arduino.h>
 #include <LiquidCrystal_I2C.h>
 #include <Keypad.h>
-
-#include "menu.hpp"
+// Include local header files
+#include "panel.hpp"
 #include "storage.hpp"
 #include "system.hpp"
-#include "helper_functions.hpp"
+#include "relays.hpp"
 
 /********************************************************************
  * Create LCD class and other LCD stuff                             *
@@ -65,7 +66,7 @@ small_door_page_class small_door_page;
 big_door_page_class big_door_page;
 settings_page_class settings_page;
 access_control_page_class access_control_page;
-settings_pass_page_class settings_pass_page;
+pass_page_class pass_page;
 auth_settings_page_class auth_settings_page;
 change_pin_page_class change_pin_page;
 user_list_page_class user_list_page;
@@ -73,12 +74,12 @@ number_edit_page_class number_edit_page;
 number_add_page_class number_add_page;
 log_page_class log_page;
 incorrect_pin_page_class incorrect_pin_page;
-siren_pass_page_class siren_pass_page;
 siren_page_class siren_page;
 nadolazeca_siren_page_class nadolazeca_siren_page;
 neposredna_siren_page_class neposredna_siren_page;
 prestanak_siren_page_class prestanak_siren_page;
 vatrogasna_siren_page_class vatrogasna_siren_page;
+unknown_door_state_page_class unknown_door_state_page;
 
 /********************************************************************
  * Create global panel variables and functions                      *
@@ -91,6 +92,35 @@ panel::panel(menu_page_class &home_page) {
     home_page_ptr = &home_page;
     current_page_ptr = NULL;
     back_page_ptr = NULL;
+    // Button is not pressed
+    button_pressed = FALSE;
+    // Last interaction was never
+    last_interaction = 0;
+}
+
+void panel::init() {
+    setting_record motd;   // Get motd from permanent storage
+    // Run display init
+    init_display();
+    // Set button 1
+    pinMode(BUTTON1_PIN, INPUT);
+    digitalWrite(BUTTON1_PIN, LOW);
+    // Set button 2
+    pinMode(BUTTON2_PIN, INPUT);
+    digitalWrite(BUTTON2_PIN, LOW);
+    // Set button 3
+    pinMode(BUTTON3_PIN, INPUT);
+    digitalWrite(BUTTON3_PIN, LOW);
+    // Set button 4
+    pinMode(BUTTON4_PIN, INPUT);
+    digitalWrite(BUTTON4_PIN, LOW);
+    // Check if custom motd has been set
+    motd = storage.get_setting(SETTING_MOTD);
+    if (system_control.test_error(ERROR_SD)) return;
+    // If custom motd is set and there were no SD card errors
+    if (!strcompare("", motd.string_value)) {
+        set_motd(1, motd.string_value);        // Set that motd at level 1
+    }
 }
 
 void panel::set_page(menu_page_class &page) {
@@ -104,11 +134,91 @@ void panel::set_page(menu_page_class &page) {
 void panel::update() {
     char key = keypad.getKey();
 
+    if (current_page_ptr != home_page_ptr && millis() - last_interaction > GO_HOME_TIME) {
+        go_home();
+    }
+
     if (key) {
+        last_interaction = millis();
+        system_control.beep(1);
         current_page_ptr->key_press(key);
     }
 
     current_page_ptr->update();
+
+    if (digitalRead(BUTTON1_PIN)) {
+        if (!button_pressed) {
+            last_interaction = millis();
+            button_pressed = 1;
+            system_control.beep(1);
+            
+            int siren_auth = storage.get_setting(SETTING_SIRENE_AUTH).int_value;
+            // If there was storage problem skip PIN
+            if (system_control.test_error(ERROR_SD)) {
+                set_page(neposredna_siren_page);
+            // Else if pin is needed ask for pin
+            } else if (siren_auth) {
+                pass_page.back_page(home_page);
+                pass_page.redirect_page(neposredna_siren_page);
+                set_page(pass_page);
+            // Else just go to requested page
+            } else {
+                set_page(neposredna_siren_page);
+            }
+        }
+    } else if (digitalRead(BUTTON2_PIN)) {
+        if (!button_pressed) {
+            last_interaction = millis();
+            button_pressed = 1;
+            system_control.beep(1);
+            
+            int siren_auth = storage.get_setting(SETTING_SIRENE_AUTH).int_value;
+            // If there was storage problem skip PIN
+            if (system_control.test_error(ERROR_SD)) {
+                set_page(prestanak_siren_page);
+            // Else if pin is needed ask for pin
+            } else if (siren_auth) {
+                pass_page.back_page(home_page);
+                pass_page.redirect_page(prestanak_siren_page);
+                set_page(pass_page);
+            // Else just go to requested page
+            } else {
+                set_page(prestanak_siren_page);
+            }
+        }
+    } else if (digitalRead(BUTTON3_PIN)) {
+        if (!button_pressed) {
+            last_interaction = millis();
+            button_pressed = 1;
+            system_control.beep(1);
+            
+            int siren_auth = storage.get_setting(SETTING_SIRENE_AUTH).int_value;
+            // If there was storage problem skip PIN
+            if (system_control.test_error(ERROR_SD)) {
+                set_page(vatrogasna_siren_page);
+            // Else if pin is needed ask for pin
+            } else if (siren_auth) {
+                pass_page.back_page(home_page);
+                pass_page.redirect_page(vatrogasna_siren_page);
+                set_page(pass_page);
+            // Else just go to requested page
+            } else {
+                set_page(vatrogasna_siren_page);
+            }
+        }
+    } else if (digitalRead(BUTTON4_PIN)) {
+        if (!button_pressed) {
+            last_interaction = millis();
+            button_pressed = 1;
+            system_control.beep(2);
+            // Stop any running sirens
+            relay.siren_stop();
+            storage.log_this(USER_PANEL, "UST");
+            set_page(home_page);
+        }
+    } else if (button_pressed) {
+        button_pressed = 0;
+    }
 }
 
 void panel::go_home() {
@@ -204,9 +314,6 @@ void menu_page_class::print_cursor() {
     }
 }
 
-// If page do not have motd, do nothing
-void menu_page_class::update_motd() {}
-
 /********************************************************************
  * Template input page functions                                    *
  ********************************************************************/
@@ -279,17 +386,16 @@ void home_page_class::print() {
 }
 
 void home_page_class::update() {
-    RtcDateTime now = rtc.GetDateTime();
-
+    char time_formated[16];               // Formated time string
+    RtcDateTime now = rtc.GetDateTime();  // Current time
+    // Get time to formated string
+    sprintf(
+        time_formated, "%02hhu:%02hhu:%02hhu    ",  // Add few extra spaces at the end because piece of shit
+        now.Hour(), now.Minute(), now.Second()      // somethimes glitches and prints one extra digit at the end
+    );
+    // Print formated string to display
     lcd.setCursor(1, 2);
-    if (now.Hour() < 10) lcd.print("0");
-    lcd.print(now.Hour());
-    lcd.print(":");
-    if (now.Minute() < 10) lcd.print("0");
-    lcd.print(now.Minute());
-    lcd.print(":");
-    if (now.Second() < 10) lcd.print("0");
-    lcd.print(now.Second());
+    lcd.print(time_formated);
 }
 
 void home_page_class::key_press(const char key) {
@@ -301,9 +407,16 @@ void home_page_class::key_press(const char key) {
 }
 
 void home_page_class::update_motd() {
-    lcd.clear();
-    print();
-    update();
+    int i;                                           // Counter
+    int length = strlength(main_panel.get_motd());   // Get length of motd
+    // Print motd to first line
+    lcd.setCursor(0,0);
+    lcd.print(main_panel.get_motd());
+    // Fill rest of the line with spaces
+    for (i = 0; i < 20 - length; i++) {
+        lcd.print(' ');
+    }
+    
 }
 
 /********************************************************************
@@ -317,19 +430,22 @@ void main_menu_page_class::print() {
     zero_cursor();
 
     lcd.setCursor(1, 0);
-    lcd.print("Vrata");
+    lcd.print(F("Vrata"));
     lcd.setCursor(1, 1);
-    lcd.print("Sirene");
+    lcd.print(F("Sirene"));
     lcd.setCursor(1, 2);
-    lcd.print("Svijetlo");
+    lcd.print(F("Svijetlo"));
     lcd.setCursor(1, 3);
-    lcd.print("Postavke");
+    lcd.print(F("Postavke"));
 }
 
 void main_menu_page_class::update() {
     print_cursor();
 
-    // Light indicator code also goes here
+    lcd.setCursor(15, 2);
+    lcd.print(
+        (relay.get_light()) ? F("ON ") : F("OFF")
+    );
 }
 
 void main_menu_page_class::key_press(const char key) {
@@ -357,7 +473,9 @@ void main_menu_page_class::key_press(const char key) {
                         // If there was storage problem abort
                         if (system_control.test_error(ERROR_SD)) return;
                         if (siren_auth) {
-                            main_panel.set_page(siren_pass_page);
+                            pass_page.back_page(main_menu_page);
+                            pass_page.redirect_page(siren_page);
+                            main_panel.set_page(pass_page);
                         // Else go to settings
                         } else {
                             main_panel.set_page(siren_page);
@@ -365,6 +483,9 @@ void main_menu_page_class::key_press(const char key) {
                     }
                     break;
                 case 2: // Line 2: Svijetlo
+                    // Change state of light to oposit of current state
+                    storage.log_this(USER_PANEL, (!relay.get_light()) ? "SON" : "SOF");
+                    relay.light(!relay.get_light());
                     break;
                 case 3: // Line 3: Postavke
                     // Check if there are any SD card errors
@@ -376,7 +497,9 @@ void main_menu_page_class::key_press(const char key) {
                         if (system_control.test_error(ERROR_SD)) return;
                         // If settings auth is enabled ask for PIN
                         if (settings_auth) {
-                            main_panel.set_page(settings_pass_page);
+                            pass_page.back_page(main_menu_page);
+                            pass_page.redirect_page(settings_page);
+                            main_panel.set_page(pass_page);
                         // Else go to settings
                         } else {
                             main_panel.set_page(settings_page);
@@ -398,17 +521,48 @@ doors_menu_page_class::doors_menu_page_class() {
 void doors_menu_page_class::print() {
     zero_cursor();
     lcd.setCursor(0, 0);
-    lcd.print("Izaberi vrata");
+    lcd.print(F("Izaberi vrata"));
     lcd.setCursor(1, 1);
-    lcd.print("Vrata Mala");
+    lcd.print(F("Vrata Mala"));
     lcd.setCursor(1, 2);
-    lcd.print("Vrata Velika");
+    lcd.print(F("Vrata Velika"));
 }
 
 void doors_menu_page_class::update() {
     print_cursor();
 
-    // Doors status indicator code also goes here
+    // Set door status for small door
+    lcd.setCursor(15, 1);
+    switch (relay.get_door_small()) {
+        case DOOR_MIDDLE:
+            lcd.print(F("NEP"));
+            break;
+        case DOOR_CLOSED:
+            lcd.print(F("ZAT"));
+            break;
+        case DOOR_OPENED:
+            lcd.print(F("OTV"));
+            break;
+        case DOOR_ERROR:
+            lcd.print(F("ERR"));
+            break;
+    }
+    // Set status for big door
+    lcd.setCursor(15, 2);
+    switch (relay.get_door_big()) {
+        case DOOR_MIDDLE:
+            lcd.print(F("NEP"));
+            break;
+        case DOOR_CLOSED:
+            lcd.print(F("ZAT"));
+            break;
+        case DOOR_OPENED:
+            lcd.print(F("OTV"));
+            break;
+        case DOOR_ERROR:
+            lcd.print(F("ERR"));
+            break;
+    }
 }
 
 void doors_menu_page_class::key_press(const char key) {
@@ -445,11 +599,11 @@ small_door_page_class::small_door_page_class() {
 void small_door_page_class::print() {
     zero_cursor();
     lcd.setCursor(0, 0);
-    lcd.print("Mala Vrata");
+    lcd.print(F("Mala Vrata"));
     lcd.setCursor(1, 1);
-    lcd.print("Otvori");
+    lcd.print(F("Otvori"));
     lcd.setCursor(1, 2);
-    lcd.print("Zatvori");
+    lcd.print(F("Zatvori"));
 }
 
 void small_door_page_class::update() {
@@ -470,8 +624,26 @@ void small_door_page_class::key_press(const char key) {
         case OK_KEY:
             switch(cursor) {
                 case 1: // Line 0: Otvori
+                    // If door is in the middle or there is an error with switches report error
+                    if (relay.get_door_small() == DOOR_MIDDLE || relay.get_door_small() == DOOR_ERROR) {
+                        main_panel.set_page(unknown_door_state_page);
+                    // Try to open the door
+                    } else {
+                        relay.door_small(DOPEN);
+                        storage.log_this(USER_PANEL, "VMO");
+                        main_panel.set_page(doors_menu_page);
+                    }
                     break;
                 case 2: // Line 1: Zatvori
+                    // If door is in the middle or there is an error with switches report error
+                    if (relay.get_door_small() == DOOR_MIDDLE || relay.get_door_small() == DOOR_ERROR) {
+                        main_panel.set_page(unknown_door_state_page);
+                    // Try to close the door
+                    } else {
+                        relay.door_small(DCLOSE);
+                        storage.log_this(USER_PANEL, "VMZ");
+                        main_panel.set_page(doors_menu_page);
+                    }
                     break;
             }
             break;
@@ -488,11 +660,11 @@ big_door_page_class::big_door_page_class() {
 void big_door_page_class::print() {
     zero_cursor();
     lcd.setCursor(0, 0);
-    lcd.print("Velika vrata");
+    lcd.print(F("Velika vrata"));
     lcd.setCursor(1, 1);
-    lcd.print("Otvori");
+    lcd.print(F("Otvori"));
     lcd.setCursor(1, 2);
-    lcd.print("Zatvori");
+    lcd.print(F("Zatvori"));
 }
 
 void big_door_page_class::update() {
@@ -513,8 +685,26 @@ void big_door_page_class::key_press(const char key) {
         case OK_KEY:
             switch(cursor) {
                 case 1: // Line 0: Otvori
+                    // If door is in the middle report error
+                    if (relay.get_door_big() == DOOR_MIDDLE || relay.get_door_big() == DOOR_ERROR) {
+                        main_panel.set_page(unknown_door_state_page);
+                    // Try to open the door
+                    } else {
+                        relay.door_big(DOPEN);
+                        storage.log_this(USER_PANEL, "VVO");
+                        main_panel.set_page(doors_menu_page);
+                    }
                     break;
                 case 2: // Line 1: Zatvori
+                    // If door is in the middle report error
+                    if (relay.get_door_big() == DOOR_MIDDLE || relay.get_door_big() == DOOR_ERROR) {
+                        main_panel.set_page(unknown_door_state_page);
+                    // Try to close the door
+                    } else {
+                        relay.door_big(DCLOSE);
+                        storage.log_this(USER_PANEL, "VVZ");
+                        main_panel.set_page(doors_menu_page);
+                    }
                     break;
             }
             break;
@@ -532,13 +722,13 @@ void settings_page_class::print() {
     zero_cursor();
 
     lcd.setCursor(0, 0);
-    lcd.print("Izmjena postavki");
+    lcd.print(F("Izmjena postavki"));
     lcd.setCursor(1, 1);
-    lcd.print("Kontrola pristupa");
+    lcd.print(F("Kontrola pristupa"));
     lcd.setCursor(1, 2);
-    lcd.print("Auth postavke");
+    lcd.print(F("Auth postavke"));
     lcd.setCursor(1, 3);
-    lcd.print("Pregled loga");
+    lcd.print(F("Pregled loga"));
 }
 
 void settings_page_class::update() {
@@ -583,11 +773,11 @@ void access_control_page_class::print() {
     zero_cursor();
 
     lcd.setCursor(0, 0);
-    lcd.print("Kontrola pristupa");
+    lcd.print(F("Kontrola pristupa"));
     lcd.setCursor(1, 1);
-    lcd.print("Korisnici");
+    lcd.print(F("Korisnici"));
     lcd.setCursor(1, 2);
-    lcd.print("Dodaj korisnika");
+    lcd.print(F("Dodaj korisnika"));
 }
 
 void access_control_page_class::update() {
@@ -619,31 +809,41 @@ void access_control_page_class::key_press(const char key) {
 }
 
 /********************************************************************
- * Settings enter password page functions                           *
+ * Enter password page functions                                    *
  ********************************************************************/
-settings_pass_page_class::settings_pass_page_class() {
+pass_page_class::pass_page_class() {
     set_cursor(-1, -1);
     is_password(TRUE);
+    redirect_page_ptr = NULL;
+    back_page_ptr = NULL;
 }
 
-void settings_pass_page_class::print() {
+void pass_page_class::print() {
     clear_buffer();
     lcd.setCursor(0,0);
-    lcd.print("Unesite PIN:");
+    lcd.print(F("Unesite PIN:"));
 }
 
-void settings_pass_page_class::update() {
+void pass_page_class::update() {
     print_input(2);
 }
 
-void settings_pass_page_class::key_press(const char key) {
+void pass_page_class::redirect_page(menu_page_class &page) {
+    redirect_page_ptr = &page;
+}
+
+void pass_page_class::back_page(menu_page_class &page) {
+    back_page_ptr = &page;
+}
+
+void pass_page_class::key_press(const char key) {
 
     if (is_digit(key) || key == DELETE_KEY) {
         key_input(key);
     } else {
         switch(key) {
             case BACK_KEY:
-                main_panel.set_page(main_menu_page);
+                main_panel.set_page(*back_page_ptr);
                 break;
             case OK_KEY:
                 // Get password
@@ -652,8 +852,9 @@ void settings_pass_page_class::key_press(const char key) {
                 if (system_control.test_error(ERROR_SD)) return;
                 // Check if entered pin is correct
                 if (strcompare(get_buffer(), pin)) {
-                    main_panel.set_page(settings_page);
+                    main_panel.set_page(*redirect_page_ptr);
                 } else {
+                    incorrect_pin_page.next_page(*back_page_ptr);
                     main_panel.set_page(incorrect_pin_page);
                 }
                 break;
@@ -671,23 +872,23 @@ auth_settings_page_class::auth_settings_page_class() {
 void auth_settings_page_class::print() {
     zero_cursor();
     lcd.setCursor(0, 0);
-    lcd.print("Auth postavke");
+    lcd.print(F("Auth postavke"));
     lcd.setCursor(1, 1);
-    lcd.print("Sirene Auth");
+    lcd.print(F("Sirene Auth"));
     lcd.setCursor(1, 2);
-    lcd.print("Postavke Auth");
+    lcd.print(F("Postavke Auth"));
     lcd.setCursor(1, 3);
-    lcd.print("Promjeni PIN");
+    lcd.print(F("Promjeni PIN"));
 
     lcd.setCursor(16, 1);
     lcd.print(
-        (storage.get_setting(SETTING_SIRENE_AUTH).int_value) ? "DA" : "NE"
+        (storage.get_setting(SETTING_SIRENE_AUTH).int_value) ? F("DA") : F("NE")
     );
     // If there was storage problem abort
     if (system_control.test_error(ERROR_SD)) return;
     lcd.setCursor(16, 2);
     lcd.print(
-        (storage.get_setting(SETTING_SETTINGS_AUTH).int_value) ? "DA" : "NE"
+        (storage.get_setting(SETTING_SETTINGS_AUTH).int_value) ? F("DA") : F("NE")
     );
     // If there was storage problem abort
     if (system_control.test_error(ERROR_SD)) return;
@@ -751,7 +952,7 @@ change_pin_page_class::change_pin_page_class() {
 void change_pin_page_class::print() {
     clear_buffer();
     lcd.setCursor(0, 0);
-    lcd.print("Unesite novi PIN:");
+    lcd.print(F("Unesite novi PIN:"));
 }
 
 void change_pin_page_class::update() {
@@ -792,15 +993,15 @@ void user_list_page_class::private_print() {
     if (user_count == 0) {
         set_cursor(-1, -1);
         lcd.setCursor(0,0);
-        lcd.print("Datoteka korisnika");
+        lcd.print(F("Datoteka korisnika"));
         lcd.setCursor(0,1);
-        lcd.print("prazna");
+        lcd.print(F("prazna"));
     } else {
         set_cursor(1,2);
         zero_cursor();
         lcd.clear();
         lcd.setCursor(0, 0);
-        lcd.print("Broj: +");
+        lcd.print(F("Broj: +"));
 
         user_record user = storage.get_user_by_pos(list_page);
         // If there was storage problem abort
@@ -809,19 +1010,19 @@ void user_list_page_class::private_print() {
 
         lcd.print(user.number);
         lcd.setCursor(1, 1);
-        lcd.print("Aktivan");
+        lcd.print(F("Aktivan"));
         lcd.setCursor(16, 1);
         lcd.print(
-            (user.active) ? "DA" : "NE"
+            (user.active) ? F("DA") : F("NE")
         );
         lcd.setCursor(1, 2);
-        lcd.print("Izmjena broja");
+        lcd.print(F("Izmjena broja"));
         lcd.setCursor(0, 3);
-        lcd.print("Str [");
+        lcd.print(F("Str ["));
         lcd.print(list_page + 1);
-        lcd.print("/");
+        lcd.print(F("/"));
         lcd.print(user_count);
-        lcd.print("]");
+        lcd.print(F("]"));
     }
 }
 
@@ -870,7 +1071,7 @@ void user_list_page_class::key_press(const char key) {
                     }
                     lcd.setCursor(16, 1);
                     lcd.print(
-                        (storage.get_user_by_id(current_user_id).active) ? "DA" : "NE"
+                        (storage.get_user_by_id(current_user_id).active) ? F("DA") : F("NE")
                     );
                     // If there was storage problem abort
                     if (system_control.test_error(ERROR_SD)) return;
@@ -895,7 +1096,7 @@ number_edit_page_class::number_edit_page_class() {
 void number_edit_page_class::print() {
     clear_buffer();
     lcd.setCursor(0, 0);
-    lcd.print("Unesite novi broj:");
+    lcd.print(F("Unesite novi broj:"));
 }
 
 void number_edit_page_class::update() {
@@ -935,7 +1136,7 @@ number_add_page_class::number_add_page_class() {
 void number_add_page_class::print() {
     clear_buffer();
     lcd.setCursor(0, 0);
-    lcd.print("Unesi novi broj: ");
+    lcd.print(F("Unesi novi broj: "));
 }
 
 void number_add_page_class::update() {
@@ -975,7 +1176,7 @@ void log_page_class::private_print() {
     // If there are no logs print message
     if (log_count == 0) {
         lcd.setCursor(0, 0);
-        lcd.print("Log datoteka prazna");
+        lcd.print(F("Log datoteka prazna"));
     // Else print log list
     } else {
         // Get log and user
@@ -985,39 +1186,39 @@ void log_page_class::private_print() {
         if (system_control.test_error(ERROR_SD)) return;
         // Print date and time
         lcd.setCursor(0, 0);
-        if (log.hour < 10) lcd.print("0");
+        if (log.hour < 10) lcd.print(F("0"));
         lcd.print(log.hour);
-        lcd.print(":");
-        if (log.minute < 10) lcd.print("0");
+        lcd.print(F(":"));
+        if (log.minute < 10) lcd.print(F("0"));
         lcd.print(log.minute);
-        lcd.print(":");
-        if (log.second < 10) lcd.print("0");
+        lcd.print(F(":"));
+        if (log.second < 10) lcd.print(F("0"));
         lcd.print(log.second);
-        lcd.print(" ");
-        if (log.day < 10) lcd.print("0");
+        lcd.print(F(" "));
+        if (log.day < 10) lcd.print(F("0"));
         lcd.print(log.day);
-        lcd.print("-");
-        if (log.month < 10) lcd.print("0");
+        lcd.print(F("-"));
+        if (log.month < 10) lcd.print(F("0"));
         lcd.print(log.month);
-        lcd.print("-");
-        if (log.year < 1000) lcd.print("0");
-        if (log.year < 100) lcd.print("0");
-        if (log.year < 10) lcd.print("0");
+        lcd.print(F("-"));
+        if (log.year < 1000) lcd.print(F("0"));
+        if (log.year < 100) lcd.print(F("0"));
+        if (log.year < 10) lcd.print(F("0"));
         lcd.print(log.year);
         // Print number of user
         lcd.setCursor(0, 1);
-        lcd.print("Kor: ");
+        lcd.print(F("Kor: "));
         // If user is pseudo user do not print + before name
         if (user.id > USER_LAST_RESEVED)
-            lcd.print("+");
+            lcd.print(F("+"));
         lcd.print(user.number);
         // Print code for action
         lcd.setCursor(0, 2);
-        lcd.print("Log kod: ");
+        lcd.print(F("Log kod: "));
         lcd.print(log.action);
         // Print number of record
         lcd.setCursor(0, 3);
-        lcd.print("Zapis: ");
+        lcd.print(F("Zapis: "));
         lcd.print(log_count - record_num);
     }
 }
@@ -1060,15 +1261,20 @@ void log_page_class::key_press(const char key) {
  ********************************************************************/
 incorrect_pin_page_class::incorrect_pin_page_class() {
     set_cursor(-1, -1);
+    next_page_ptr = NULL;
 }
 
 void incorrect_pin_page_class::print() {
     lcd.setCursor(3, 1);
-    lcd.print("PIN netocan !!");
+    lcd.print(F("PIN netocan !!"));
 }
 
 void incorrect_pin_page_class::update() {
     // Nothing to do
+}
+
+void incorrect_pin_page_class::next_page(menu_page_class &page) {
+    next_page_ptr = &page;
 }
 
 void incorrect_pin_page_class::key_press(const char key) {
@@ -1076,48 +1282,7 @@ void incorrect_pin_page_class::key_press(const char key) {
         case OK_KEY:
             // Fall to next
         case BACK_KEY:
-            main_panel.set_page(main_menu_page);
-    }
-}
-
-/********************************************************************
- * Siren enter password page functions                              *
- ********************************************************************/
-siren_pass_page_class::siren_pass_page_class() {
-    set_cursor(-1, -1);
-    is_password(TRUE);
-}
-
-void siren_pass_page_class::print() {
-    clear_buffer();
-    lcd.setCursor(0, 0);
-    lcd.print("Unesite PIN:");
-}
-
-void siren_pass_page_class::update() {
-    print_input(2);
-}
-
-void siren_pass_page_class::key_press(const char key) {
-
-    if (is_digit(key) || key == DELETE_KEY) {
-        key_input(key);
-    } else {
-        switch(key) {
-            case BACK_KEY:
-                main_panel.set_page(main_menu_page);
-                break;
-            case OK_KEY:
-                char *pin = storage.get_setting(SETTING_PASSWORD).string_value;
-                // If there was storage problem abort
-                if (system_control.test_error(ERROR_SD)) return;
-                if (strcompare(get_buffer(), pin)) {
-                    main_panel.set_page(siren_page);
-                } else {
-                    main_panel.set_page(incorrect_pin_page);
-                }
-                break;
-        }
+            main_panel.set_page(*next_page_ptr);
     }
 }
 
@@ -1131,13 +1296,13 @@ siren_page_class::siren_page_class() {
 void siren_page_class::print() {
     zero_cursor();
     lcd.setCursor(1, 0);
-    lcd.print("Nadolazeca");
+    lcd.print(F("Nadolazeca"));
     lcd.setCursor(1, 1);
-    lcd.print("Neposredna");
+    lcd.print(F("Neposredna"));
     lcd.setCursor(1, 2);
-    lcd.print("Prestanak");
+    lcd.print(F("Prestanak"));
     lcd.setCursor(1, 3);
-    lcd.print("Vatrogasna");
+    lcd.print(F("Vatrogasna"));
 }
 
 void siren_page_class::update() {
@@ -1184,13 +1349,14 @@ nadolazeca_siren_page_class::nadolazeca_siren_page_class() {
 void nadolazeca_siren_page_class::print() {
     zero_cursor();
     lcd.setCursor(0, 0);
-    lcd.print("Nadolazeca opasnost");
+    lcd.print(F("Nadolazeca opasnost"));
     lcd.setCursor(0, 1);
-    lcd.print("pokretanje uzbune");
+    lcd.print(F("pokretanje uzbune"));
     lcd.setCursor(1, 2);
-    lcd.print("Pokreni");
+    lcd.print(F("Pokreni"));
     lcd.setCursor(1, 3);
-    lcd.print("Odustani");
+    lcd.print(F("Odustani"));
+    system_control.beep(BEEP_DURITATION * 2, 3);
 }
 
 void nadolazeca_siren_page_class::update() {
@@ -1211,7 +1377,9 @@ void nadolazeca_siren_page_class::key_press(const char key) {
         case OK_KEY:
             switch (cursor) {
                 case 2: // Line 2: Pokreni
-                    // >> Siren shit <<
+                    relay.siren_nadolazeca();
+                    storage.log_this(USER_PANEL, "UNA");
+                    main_panel.go_home();
                     break;
                 case 3: // Line 3: Odustani
                     main_panel.set_page(siren_page);
@@ -1231,13 +1399,14 @@ neposredna_siren_page_class::neposredna_siren_page_class() {
 void neposredna_siren_page_class::print() {
     zero_cursor();
     lcd.setCursor(0, 0);
-    lcd.print("Neposredna opasnost");
+    lcd.print(F("Neposredna opasnost"));
     lcd.setCursor(0, 1);
-    lcd.print("pokretanje uzbune");
+    lcd.print(F("pokretanje uzbune"));
     lcd.setCursor(1, 2);
-    lcd.print("Pokreni");
+    lcd.print(F("Pokreni"));
     lcd.setCursor(1, 3);
-    lcd.print("Odustani");
+    lcd.print(F("Odustani"));
+    system_control.beep(BEEP_DURITATION * 2, 3);
 }
 
 void neposredna_siren_page_class::update() {
@@ -1258,7 +1427,9 @@ void neposredna_siren_page_class::key_press(const char key) {
         case OK_KEY:
             switch (cursor) {
                 case 2: // Line 2: Pokreni
-                    // >> Siren shit <<
+                    relay.siren_neposredna();
+                    storage.log_this(USER_PANEL, "UNE");
+                    main_panel.go_home();
                     break;
                 case 3: // Line 3: Odustani
                     main_panel.set_page(siren_page);
@@ -1278,13 +1449,14 @@ prestanak_siren_page_class::prestanak_siren_page_class() {
 void prestanak_siren_page_class::print() {
     zero_cursor();
     lcd.setCursor(0, 0);
-    lcd.print("Prestanak opasnosti");
+    lcd.print(F("Prestanak opasnosti"));
     lcd.setCursor(0, 1);
-    lcd.print("pokretanje uzbune");
+    lcd.print(F("pokretanje uzbune"));
     lcd.setCursor(1, 2);
-    lcd.print("Pokreni");
+    lcd.print(F("Pokreni"));
     lcd.setCursor(1, 3);
-    lcd.print("Odustani");
+    lcd.print(F("Odustani"));
+    system_control.beep(BEEP_DURITATION * 2, 3);
 }
 
 void prestanak_siren_page_class::update() {
@@ -1305,7 +1477,9 @@ void prestanak_siren_page_class::key_press(const char key) {
         case OK_KEY:
             switch (cursor) {
                 case 2: // Line 2: Pokreni
-                    // >> Siren shit <<
+                    relay.siren_prestanak();
+                    storage.log_this(USER_PANEL, "UPR");
+                    main_panel.go_home();
                     break;
                 case 3: // Line 3: Odustani
                     main_panel.set_page(siren_page);
@@ -1325,13 +1499,14 @@ vatrogasna_siren_page_class::vatrogasna_siren_page_class() {
 void vatrogasna_siren_page_class::print() {
     zero_cursor();
     lcd.setCursor(0, 0);
-    lcd.print("Vatrogasna uzbuna");
+    lcd.print(F("Vatrogasna uzbuna"));
     lcd.setCursor(0, 1);
-    lcd.print("pokretanje uzbune");
+    lcd.print(F("pokretanje uzbune"));
     lcd.setCursor(1, 2);
-    lcd.print("Pokreni");
+    lcd.print(F("Pokreni"));
     lcd.setCursor(1, 3);
-    lcd.print("Odustani");
+    lcd.print(F("Odustani"));
+    system_control.beep(BEEP_DURITATION * 2, 3);
 }
 
 void vatrogasna_siren_page_class::update() {
@@ -1352,12 +1527,44 @@ void vatrogasna_siren_page_class::key_press(const char key) {
         case OK_KEY:
             switch (cursor) {
                 case 2: // Line 2: Pokreni
-                    // >> Siren shit <<
+                    relay.siren_vatrogasna();
+                    storage.log_this(USER_PANEL, "UVT");
+                    main_panel.go_home();
                     break;
                 case 3: // Line 3: Odustani
                     main_panel.set_page(siren_page);
                     break;
             }
             break;
+    }
+}
+
+/********************************************************************
+ * Unknown door state page functions                                *
+ ********************************************************************/
+
+unknown_door_state_page_class::unknown_door_state_page_class() {
+    set_cursor(-1, -1);
+}
+
+void unknown_door_state_page_class::print() {
+    lcd.setCursor(0, 0);
+    lcd.print(F("Greska !!"));
+    lcd.setCursor(0, 1);
+    lcd.print(F("nepoznato stanje"));
+    lcd.setCursor(0, 2);
+    lcd.print(F("vrata"));
+}
+
+void unknown_door_state_page_class::update() {
+    /* Do nothing */
+}
+
+void unknown_door_state_page_class::key_press(const char key) {
+    switch (key) {
+        case OK_KEY:
+            // Fall to next
+        case BACK_KEY:
+            main_panel.set_page(doors_menu_page);
     }
 }

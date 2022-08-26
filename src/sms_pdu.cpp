@@ -1,7 +1,7 @@
+// Include global header files
 #include <Arduino.h>
-
+// Include local header files
 #include "sms_pdu.hpp"
-#include "helper_functions.hpp"
 
 /********************************************************************
  * Function prototypes                                              *
@@ -297,18 +297,60 @@ builder::builder() {
 
 void builder::set_number(const char num[]) {
     int i;
-    for (i = 0; num[i] != '\0'; i++) {
+    for (i = 0; num[i] != '\0' && i < 160; i++) {
         number[i] = num[i];
     }
     number[i] = '\0';
 }
 
+void builder::set_number(const __FlashStringHelper *num) {
+    unsigned int address = (unsigned int)num;     // Get address in flash
+    unsigned int i = 0;                           // Character counter
+
+    while (1) {
+        // Check for buffer overflow
+        if (i >= 160) {
+            message[i] = '\0';
+            break;
+        }
+        // Get current character from flash
+        char ch = pgm_read_byte_near(address + i);
+        // Add read character to number array
+        number[i] = ch;
+        // If this is last character it's done
+        if (ch == '\0') break;
+        // Else go to next character
+        ++i;
+    }
+}
+
 void builder::set_message(const char msg[]) {
     int i;
-    for (i = 0; msg[i] != '\0'; i++) {
+    for (i = 0; msg[i] != '\0' && i < 160; i++) {
         message[i] = msg[i];
     }
     message[i] = '\0';
+}
+
+void builder::set_message(const __FlashStringHelper *msg) {
+    unsigned int address = (unsigned int)msg;     // Get address in flash
+    unsigned int i = 0;                           // Character counter
+
+    while (1) {
+        // Check for buffer overflow
+        if (i >= 160) {
+            message[i] = '\0';
+            break;
+        }
+        // Get current character from flash
+        char ch = pgm_read_byte_near(address + i);
+        // Add read character to message array
+        message[i] = ch;
+        // If this is last character it's done
+        if (ch == '\0') break;
+        // Else go to next character
+        ++i;
+    }
 }
 
 void builder::calculate() {
@@ -316,6 +358,7 @@ void builder::calculate() {
     int j;        // Array index multiple uses
     int length;   // String length multiple uses
     char temp;    // Temp variable for character switching
+    int max_length;
     
     // Get length of phone number
     length = strlength(number);
@@ -358,12 +401,27 @@ void builder::calculate() {
     // Set TP-Validity-Period to 4 days
     encoded[i++] = 'A';
     encoded[i++] = 'A';
+    // Calculate max length of message that can fit in buffer
+    encoded[i] = '\0';
+    max_length = ((BUILDER_BUFFER - strlength(encoded)) / 2 / 7 * 8) + ((BUILDER_BUFFER - strlength(encoded)) / 2 % 7);
+    // If message could be larger than max length, shrink message
+    if (max_length < 170) {
+        message[max_length - 8] = '\0';
+    }
     // Set Length of message
     length = strlength(message);
     encoded[i++] = int_to_ch(length >> 4);
     encoded[i++] = int_to_ch(length & ~(~0 << 4));
     // Encode message
     encode(message, encoded + i);
+}
+
+const char * builder::get_pdu() {
+    return encoded;
+}
+
+int builder::get_tpdu_length() {
+    return (strlength(encoded) / 2) - 1;
 }
 
 /********************************************************************

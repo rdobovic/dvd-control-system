@@ -4,18 +4,14 @@
  *     DS1302 DAT/IO     --> 4                                      *
  *     DS1302 RST/CE     --> 3                                      *
  ********************************************************************/
+
+// Include global header files
 #include <SPI.h>
 #include <SD.h>
 
+// Include local header files
 #include "storage.hpp"
 #include "system.hpp"
-#include "helper_functions.hpp"
-
-#define DATA_DIR "DATA"
-
-#define SETTINGS_FILE   DATA_DIR "/SETTINGS.BIN"
-#define LOG_FILE        DATA_DIR "/LOGS.BIN"
-#define USERS_FILE      DATA_DIR "/USERS.BIN"
 
 ThreeWire myWire(4,5,3);
 RtcDS1302<ThreeWire> rtc(myWire);
@@ -26,28 +22,29 @@ storage_class storage;
  * Functions for initialization of necessary components             *
  ********************************************************************/
 
+// Function to run initialization of RTC
 void init_rtc() {
     rtc.Begin();
 
-    RtcDateTime compiled = RtcDateTime(__DATE__, __TIME__);
+    //RtcDateTime compiled = RtcDateTime(__DATE__, __TIME__);
 
     if (!rtc.IsDateTimeValid()) {
-        rtc.SetDateTime(compiled);
+        // Set error because rtc lost confidence in date and time
+        system_control.set_error(ERROR_RTC_CONFIDENCE);
+        // Since date and time is set by user do not reset it to complile time
+        //rtc.SetDateTime(compiled);
     }
     if (rtc.GetIsWriteProtected()) {
+        // If RTC is write protected enable writing
         rtc.SetIsWriteProtected(false);
     }
     if (!rtc.GetIsRunning()) {
+        // If RTC is not running, start it
         rtc.SetIsRunning(true);
-    }
-
-    RtcDateTime now = rtc.GetDateTime();
-
-    if (now < compiled) {
-        rtc.SetDateTime(compiled);
     }
 }
 
+// Function to run initialization of SD
 void init_sd() {
     if (!SD.begin()) {
         system_control.set_error(ERROR_SD_INIT);
@@ -78,10 +75,17 @@ void storage_class::init() {
         settings_file.close();
 
         set_setting(SETTING_PASSWORD, "0000");
-        set_setting(SETTING_SIRENE_AUTH, 0);
-        set_setting(SETTING_SETTINGS_AUTH, 0);
+        set_setting(SETTING_PASSWORD, FALSE);
+        set_setting(SETTING_SIRENE_AUTH, "");
+        set_setting(SETTING_SIRENE_AUTH, FALSE);
+        set_setting(SETTING_SETTINGS_AUTH, "");
+        set_setting(SETTING_SETTINGS_AUTH, FALSE);
         set_setting(SETTING_MOTD, "");
+        set_setting(SETTING_MOTD, FALSE);
+        set_setting(SETTING_NEXT_USER_ID, "");
         set_setting(SETTING_NEXT_USER_ID, USER_LAST_RESEVED + 1);
+        set_setting(SETTING_LAST_LIGHT_STATE, "");
+        set_setting(SETTING_LAST_LIGHT_STATE, OFF);
     }
 }
 
@@ -229,7 +233,6 @@ unsigned long storage_class::get_log_count() {
     File log_file = SD.open(LOG_FILE, (O_READ | O_WRITE | O_CREAT));
     if (!log_file) {
         system_control.set_error(ERROR_SD_READ);
-        Serial.println("FILE READ ERROR !!");
         return 0u;
     }
     file_size = log_file.size();
@@ -276,17 +279,17 @@ struct log_record storage_class::get_log(unsigned long position) {
         system_control.set_error(ERROR_SD_READ);
         return log;
     }
+
     if (log_file.size() == 0) {
         log_file.close();
         return log;
     }
-
     log_file.seek(
         log_file.size() - sizeof(log_record) - (sizeof(log_record) * position)
     );
+
     log_file.read((byte*)&log, sizeof(log_record));
     log_file.close();
-
     return log;
 }
 
@@ -505,6 +508,7 @@ struct user_record storage_class::get_user_by_id(const int id) {
         user_file.read((byte*)&user, sizeof(user_record));
 
         if (user.id == id) {
+            user_file.close();
             return user;
         }
     }
@@ -534,20 +538,21 @@ struct user_record storage_class::get_user_by_num(const char number[]) {
         system_control.set_error(ERROR_SD_READ);
         return user_record {USER_DELETED, 0, "OBRISAN"};
     }
+    
     user_file.seek(0);
 
     for (i = 0; i < user_file.size(); i += sizeof(user_record)) {
         user_file.read((byte*)&user, sizeof(user_record));
 
         if (strcompare(number, user.number)) {
+            user_file.close();
             return user;
         }
     }
-
+    
     user_record no_user = {
         0, 0, "DELETED"
     };
-
     user_file.close();
     return no_user;
 }
@@ -586,7 +591,7 @@ void storage_class::delete_user(int id) {
         system_control.set_error(ERROR_SD_WRITE);
         return;
     }
-    temp_file = SD.open("UTEMP.BIN", (O_READ | O_WRITE | O_CREAT));
+    temp_file = SD.open("TEMP.BIN", (O_READ | O_WRITE | O_CREAT));
     if (!temp_file) {
         system_control.set_error(ERROR_SD_WRITE);
         return;

@@ -1,18 +1,30 @@
 #ifndef _INCLUDE_SMS_PDU_HPP_
 #define _INCLUDE_SMS_PDU_HPP_
 
+// Include general stuff
+#include "helper_functions.hpp"
+
+// How many characters can fit on builder pdu buffer
+#define BUILDER_BUFFER 300
+
+// Builder class used to calculate SMS pdu for given number and message
+// this pdu can than be send by modem in pdu mode
 class builder {
     private:
-        char number[20];      // Receiver number
-        char message[170];    // Message to be encoded
-        char encoded[200];    // Calculated PDU
+        char number[20];               // Receiver number
+        char message[170];             // Message to be encoded
+        char encoded[BUILDER_BUFFER];  // Calculated PDU
     public:
         // Default constructor
         builder();
         // Set receiver number to put in PDU
         void set_number(const char num[]);
+        // Set receiver number but number is stored in FLASH
+        void set_number(const __FlashStringHelper *num);
         // Set message to be encoded in PDU
         void set_message(const char msg[]);
+        // Set message to be encoded bit message is stored in FLASH
+        void set_message(const __FlashStringHelper *msg);
         // Calculate PDU for given information
         void calculate();
         // Return pointer to calculated PDU
@@ -21,6 +33,8 @@ class builder {
         int get_tpdu_length();
 };
 
+// Parser class used to get number and message from SMS pdu which
+// arrived from modem over Serial3
 class parser {
     private:
         char number[20];           // Number parsed from PDU

@@ -1,3 +1,6 @@
+// Include local header files
+#include "helper_functions.hpp"
+
 // Function to copy one zero terminated string to another
 void strcopy( const char from_this[], char to_this[], const int to_size) {
     int i;  // Index counter
@@ -32,9 +35,10 @@ int is_digit(const char _ch) {
 }
 
 // Function counts how many characters are in the string
-int strlength(char string[]) {
+int strlength(const char string[]) {
     int i;  // Index counter
-    for (i = 0; string[i] != '\0'; i++);
+    for (i = 0; string[i] != '\0'; i++)
+        /* Do nothing */;
     return i;
 }
 

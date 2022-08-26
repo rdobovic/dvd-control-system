@@ -1,6 +1,16 @@
 #ifndef _INCLUDE_HELPER_FUNCTIONS_HPP_
 #define _INCLUDE_HELPER_FUNCTIONS_HPP_
 
+// Used to choose on/off state of device
+#define ON 1
+#define OFF 0
+// Used instead instead of boolean variables
+#define TRUE 1
+#define FALSE 0
+// Used to choose state of door
+#define DOPEN 1
+#define DCLOSE 0
+
 /********************************************************************
  * strcopy -- Function to copy one zero terminated string to other  *
  *                                                                  *
@@ -45,7 +55,7 @@ int is_digit(const char _ch);
  * Returns                                                          *
  *     Number of characters in the string (npr. returns 2 for "tt") *
 ********************************************************************/
-int strlength(char string[]);
+int strlength(const char string[]);
 
 /********************************************************************
  * strstartswith -- Function checks if string1 starts with string2  *

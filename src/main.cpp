@@ -1,143 +1,60 @@
-#include <Arduino.h>
+/*
+ *    ______     ______     ____            _             _   ____            _                 
+ *   |  _ \ \   / /  _ \   / ___|___  _ __ | |_ _ __ ___ | | / ___| _   _ ___| |_ ___ _ __ ___  
+ *   | | | \ \ / /| | | | | |   / _ \| '_ \| __| '__/ _ \| | \___ \| | | / __| __/ _ \ '_ ` _ \ 
+ *   | |_| |\ V / | |_| | | |__| (_) | | | | |_| | | (_) | |  ___) | |_| \__ \ ||  __/ | | | | |
+ *   |____/  \_/  |____/   \____\___/|_| |_|\__|_|  \___/|_| |____/ \__, |___/\__\___|_| |_| |_|
+ *                                                               |___/                       
+ * 
+ *   Author: rdobovic
+ * 
+ *   Version: 1.0.0
+ * 
+ *   DVDCS is a device used by fire brigade to remotly and locally perform actions inside fire 
+ *   station. This version of DVDCS supports control over SMS, and using buttons on front panel
+ *   of device. Using this device user can control two station doors, air siren, and light within
+ *   the station. Configuration of device can be done using device command line, which can be
+ *   accessed using USB serial connection.
+ * 
+ */
 
-#include "menu.hpp"
+// Include global header files
+#include <Arduino.h>
+// Include local header files
+#include "panel.hpp"
 #include "storage.hpp"
 #include "system.hpp"
+#include "modem.hpp"
+#include "relays.hpp"
 
-char ch;
-
+// Initialize stuff on startup
 void setup() {
-    unsigned long li;
-    int i;
-     
-    Serial.begin(9600);
-    init_display();
-    //init_rtc();
-    //init_sd();
+    // Initialize system
+    system_control.init();
+    // Initialize storage
     storage.init();
-
-    Serial.println("-- Start settings test --");
-
-    Serial.println("-- End settings test --");
-
-    Serial.println("-- Start log test --");
-
-    /*//storage.log_this(USER_PANEL, "VMO");
-    storage.log_this(USER_SERIAL, "SUG");
-    storage.log_this(5, "SUP");
-
-    Serial.print("Num of records: ");
-    Serial.println(storage.get_log_count());
-
-    for (li = 0; li < storage.get_log_count(); li++) {
-        log_record log = storage.get_log(li);
-
-        Serial.print(log.user_id);
-        Serial.print(" -- ");
-        Serial.print(log.hour);
-        Serial.print(":");
-        Serial.print(log.minute);
-        Serial.print(":");
-        Serial.print(log.second);
-        Serial.print(" ");
-        Serial.print(log.day);
-        Serial.print("-");
-        Serial.print(log.month);
-        Serial.print("-");
-        Serial.print(log.year);
-        Serial.print(" -- ");
-        Serial.println(log.action);
-    }
-
-    Serial.println("-- End log test --");
-
-    Serial.println("-- Start users test --");
-
-    //storage.clear_user_file();
-    //storage.delete_user(6);
-    //storage.delete_user(8);
-
-    //storage.dis_user(2);
-    //storage.dis_user(4);
-    //storage.enb_user(2);
-
-    for (i = 0; i < storage.get_user_count(); i++) {
-        user_record user = storage.get_user_by_pos(i);
-        Serial.print("User ");
-        Serial.print(user.id);
-        Serial.print(" -- ");
-        Serial.print(user.active);
-        Serial.print(" -- ");
-        Serial.println(user.number);
-    }
-
-    Serial.println();
-    //Serial.println(storage.add_user("+385976644521"));
-    //Serial.println(storage.add_user("+385955254311"));
-    //Serial.println(storage.add_user("+385919748651"));
-    //Serial.println(storage.add_user("+385937263561"));
-    Serial.println();
-
-    for (i = 0; i < storage.get_user_count(); i++) {
-        user_record user = storage.get_user_by_pos(i);
-        Serial.print("User ");
-        Serial.print(user.id);
-        Serial.print(" -- ");
-        Serial.print(user.active);
-        Serial.print(" -- ");
-        Serial.println(user.number);
-    }
-
-    Serial.println();
-
-    user_record user;
-
-    user = storage.get_user_by_num("+385976644526");
-
-    Serial.print("User ");
-    Serial.print(user.id);
-    Serial.print(" -- ");
-    Serial.print(user.active);
-    Serial.print(" -- ");
-    Serial.println(user.number);
-
-    user = storage.get_user_by_id(2);
-
-    Serial.print("User ");
-    Serial.print(user.id);
-    Serial.print(" -- ");
-    Serial.print(user.active);
-    Serial.print(" -- ");
-    Serial.println(user.number);
-
-    Serial.println("-- End users test --");*/
-
-    main_panel.set_motd(1, "DVD Kontrolni Sustav");
-    main_panel.set_page(home_page);
-
+    // Initialize panel (LCD and buttons)
+    main_panel.init();
+    // Initialize relays and sensors
+    relay.init();
+    // Initialize modem control
+    modem.init();
     
+    // Start modem if it's not running yet
+    modem.start();
+    // Go to home LCD page on startup
+    main_panel.go_home();
 }
 
+// Update stuff based on user interactions for
+// each part of the system
 void loop() {
-    while (Serial.available()) {
-        ch = Serial.read();
-        if (ch == 'a') {
-            Serial.print("Password: ");
-            Serial.println(storage.get_setting(SETTING_PASSWORD).string_value);
-            Serial.print("Sirene auth: ");
-            Serial.println(storage.get_setting(SETTING_SIRENE_AUTH).int_value);
-            Serial.print("Settings auth: ");
-            Serial.println(storage.get_setting(SETTING_SETTINGS_AUTH).int_value);
-        } else if (ch == 's') {
-            system_control.set_error(ERROR_MODEM_TURN_ON);
-            system_control.set_error(ERROR_LIGHT_UNKNOWN);
-            system_control.set_error(ERROR_SD_WRITE);
-        } else if (ch == 'u') {
-            system_control.unset_error(ERROR_MODEM_TURN_ON);
-            system_control.unset_error(ERROR_LIGHT_UNKNOWN);
-            system_control.unset_error(ERROR_SD_WRITE);
-        }
-    }
-
+    // Run dynamic actions for panel
     main_panel.update();
+    // Run dynamic actions for system
+    system_control.update();
+    // Run dynamic actions for modem
+    modem.update();
+    // Run dynamic actions for relays
+    relay.update();
 }

@@ -1,22 +1,32 @@
 #ifndef _INCLUDE_STORAGE_HPP_
 #define _INCLUDE_STORAGE_HPP_
 
+// Include general stuff
+#include "helper_functions.hpp"
+
+// Include Global header files needed
 #include <Arduino.h>
 #include <ThreeWire.h>
 #include <RtcDS1302.h>
 
-// Definitions of setting IDs
+// Define names for files and directories on SD card
+#define DATA_DIR "DATA"
 
+#define SETTINGS_FILE   DATA_DIR "/SETTINGS.BIN"
+#define LOG_FILE        DATA_DIR "/LOGS.BIN"
+#define USERS_FILE      DATA_DIR "/USERS.BIN"
+
+// Definitions of setting IDs
 enum setting_ids {
     SETTING_PASSWORD,         // 0 - PIN needed for some actions on panel
     SETTING_SIRENE_AUTH,      // 1 - boolean, request PIN to access sirene
     SETTING_SETTINGS_AUTH,    // 2 - boolean, request PIN to access settings
     SETTING_MOTD,             // 3 - string to be displayed as custom MOTD
-    SETTING_NEXT_USER_ID      // 4 - smallest not used user ID
+    SETTING_NEXT_USER_ID,     // 4 - smallest not used user ID
+    SETTING_LAST_LIGHT_STATE  // 5 - Last known state of light
 };
 
 // Reserved user IDs
-
 enum reserved_user_ids {
     USER_DELETED,             // 0 - User that does not exist
     USER_PANEL,               // 1 - Action performed by panel
@@ -27,30 +37,19 @@ enum reserved_user_ids {
 // Global variable for RTC manipulation
 extern RtcDS1302<ThreeWire> rtc;
 
-/********************************************************************
- * init_rtc -- function to run initialization of RTC and print info *
- *             to serial                                            *
- ********************************************************************/
-void init_rtc();
-
-/********************************************************************
- * init_sd -- function to run initialization of SD and print info   *
- *             to serial                                            *
- ********************************************************************/
-void init_sd();
-
+// Data type for storing system settings on SD card
 struct setting_record {
     setting_ids id;
     int int_value;
     char string_value[30];
 };
-
+// Data type for storing users on SD card
 struct user_record {
     int id;
     int active;
     char number[16];
 };
-
+// Data type for storing system logs on SD card
 struct log_record {
     int user_id;
     char action[4];
@@ -61,6 +60,11 @@ struct log_record {
     uint8_t month;
     uint16_t year;
 };
+
+// Function returns pointer to string, string will contain formated
+// information about this page of logs, there are 4 logs on each page
+// if there are no logs for that page, string will be empty
+const char * get_log_page(unsigned long page);
 
 class storage_class {
     private:

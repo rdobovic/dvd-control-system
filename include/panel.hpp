@@ -1,5 +1,8 @@
-#ifndef _INCLUDE_MENU_HPP_
-#define _INCLUDE_MENU_HPP_
+#ifndef _INCLUDE_PANEL_HPP_
+#define _INCLUDE_PANEL_HPP_
+
+// Include general stuff
+#include "helper_functions.hpp"
 
 // Define global buttons
 #define UP_KEY 'A'
@@ -10,9 +13,14 @@
 #define NEXT_LIST_KEY 'D'
 #define PREVIUS_LIST_KEY 'C'
 
-// Define bools
-#define TRUE 1
-#define FALSE 0
+// Define button pins
+#define BUTTON1_PIN 39
+#define BUTTON2_PIN 37
+#define BUTTON3_PIN 35
+#define BUTTON4_PIN 33
+
+// If none of buttons is pressed for given number of ms panel will return to home page
+#define GO_HOME_TIME 120000
 
 // Max number of characters in motd
 #define MAX_MOTD_SIZE 21
@@ -23,9 +31,6 @@ const char DEFAULT_MOTD[] = "DVDCS - By BBT";
 
 // Max number of characters enterd through keyboard
 #define MAX_INPUT 19
-
-// Function to init display on startup
-void init_display();
 
 // Generic class that describes menu page
 class menu_page_class {
@@ -48,15 +53,16 @@ class menu_page_class {
         // Default constructor
         menu_page_class();
         // Print menu to display
-        virtual void print();
+        virtual void print() {}
         // Update dynamic parts of page (npr. cursor)
-        virtual void update();
+        virtual void update() {}
         // Do action based on key press
-        virtual void key_press(const char key);
+        virtual void key_press(const char key) {}
         // Update motd for page if page uses motd
-        virtual void update_motd();
+        virtual void update_motd() {}
 };
 
+// Generic class that describes page with numeric input field
 class input_page_class : public menu_page_class {
     private:
         // Array to store typed characters
@@ -80,13 +86,15 @@ class input_page_class : public menu_page_class {
         // Default constructor
         input_page_class();
         // Print menu to display
-        virtual void print();
+        virtual void print() {}
         // Update dynamic parts of page (npr. cursor)
-        virtual void update();
+        virtual void update() {}
         // Do action based on key press
-        virtual void key_press(const char key); 
+        virtual void key_press(const char key) {}
 };
 
+// Class for in charge for handling interaction phisical interactions
+// with system using system main panel (buttons, and display)
 class panel {
     private:
         // Structure to hold motd for each level
@@ -102,10 +110,16 @@ class panel {
         class menu_page_class *back_page_ptr;
         // Pointer to home menu page
         class menu_page_class *home_page_ptr;
+        // 1 if button was pressed in last update
+        int button_pressed;
+        // millis when last user interaction happend
+        unsigned long last_interaction;
 
     public:
         // Constructor sets home page
         panel(menu_page_class &home_page);
+        // Initilize panel
+        void init();
 
         // Update panel readings and output
         void update();
@@ -206,15 +220,26 @@ class access_control_page_class : public menu_page_class {
 extern access_control_page_class access_control_page;
 
 // Page to input pin before you can access settings menu
-class settings_pass_page_class : public input_page_class {
+class pass_page_class : public input_page_class {
+    private:
+        menu_page_class *redirect_page_ptr;   // Pointer to success page
+        menu_page_class *back_page_ptr;       // Pointer to back page
     public:
-        settings_pass_page_class();
+        // Default constructor
+        pass_page_class();
+        // Print static content of page
         void print();
+        // Update dynamic content of page
         void update();
+        // Set page to redirect to after if PIN is correct
+        void redirect_page(menu_page_class &page);
+        // Set page to go to if back key is pressed
+        void back_page(menu_page_class &page);
+        // Pass key to be handled by page
         void key_press(const char key);
 };
 
-extern settings_pass_page_class settings_pass_page;
+extern pass_page_class pass_page;
 
 // Auth settings page
 class auth_settings_page_class : public menu_page_class {
@@ -295,25 +320,22 @@ extern log_page_class log_page;
 
 // Incorrect PIN page
 class incorrect_pin_page_class : public menu_page_class {
+    private:
+        menu_page_class *next_page_ptr;  // Pointer to next page
     public:
+        // Default constructor
         incorrect_pin_page_class();
+        // Print static content of page
         void print();
+        // Print dynamic content of page
         void update();
+        // Set page to go to when any key is pressed
+        void next_page(menu_page_class &page);
+        // Pass key to the page to handle it
         void key_press(const char key);
 };
 
 extern incorrect_pin_page_class incorrect_pin_page;
-
-// Page to input pin before you can access siren menu
-class siren_pass_page_class : public input_page_class {
-    public:
-        siren_pass_page_class();
-        void print();
-        void update();
-        void key_press(const char key);
-};
-
-extern siren_pass_page_class siren_pass_page;
 
 // Sirens page
 class siren_page_class : public menu_page_class {
@@ -369,6 +391,17 @@ class vatrogasna_siren_page_class : public menu_page_class {
 };
 
 extern vatrogasna_siren_page_class vatrogasna_siren_page;
+
+// Doors are in unknown state error
+class unknown_door_state_page_class : public menu_page_class {
+    public:
+        unknown_door_state_page_class();
+        void print();
+        void update();
+        void key_press(const char key);
+};
+
+extern unknown_door_state_page_class unknown_door_state_page;
 
 
 #endif
